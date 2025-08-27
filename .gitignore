@@ -99,6 +99,11 @@ temp/
 
 # Uploaded files (temporary storage)
 uploads/
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
 *.tmp
 *.temp
 
@@ -131,3 +136,4 @@ data/
 # Backup files
 *.bak
 *.backup
+

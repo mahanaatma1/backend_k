@@ -1,10 +1,17 @@
 const multer = require('multer');
 const path = require('path');
+const { ensureDirectoryExists, getUploadsDir } = require('../utils/fileUtils');
+
+// Ensure uploads directory exists
+const uploadsDir = getUploadsDir();
+ensureDirectoryExists(uploadsDir);
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
   destination: function (req, file, cb) {
-    cb(null, 'uploads/'); // Files will be stored in uploads directory
+    // Ensure directory exists before saving
+    ensureDirectoryExists(uploadsDir);
+    cb(null, uploadsDir);
   },
   filename: function (req, file, cb) {
     // Generate unique filename with timestamp

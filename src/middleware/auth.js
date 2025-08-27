@@ -15,26 +15,42 @@ const protect = async (req, res, next) => {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
-      // Get user from token
-      const user = await User.findById(decoded.userId).select('-password');
-      
-      if (!user) {
-        return res.status(401).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
+      // Check if it's an admin user
+      if (decoded.userId === 'admin' && decoded.role === 'admin') {
+        // Create admin user object
+        const adminUser = {
+          _id: 'admin',
+          email: decoded.email,
+          role: 'admin',
+          firstName: 'Admin',
+          lastName: 'User',
+          isActive: true
+        };
+        
+        // Add admin user to request object
+        req.user = adminUser;
+      } else {
+        // Get regular user from token
+        const user = await User.findById(decoded.userId).select('-password');
+        
+        if (!user) {
+          return res.status(401).json({
+            success: false,
+            message: 'User not found'
+          });
+        }
 
-      // Check if user is active
-      if (!user.isActive) {
-        return res.status(401).json({
-          success: false,
-          message: 'Account is deactivated. Please contact support.'
-        });
-      }
+        // Check if user is active
+        if (!user.isActive) {
+          return res.status(401).json({
+            success: false,
+            message: 'Account is deactivated. Please contact support.'
+          });
+        }
 
-      // Add user to request object
-      req.user = user;
+        // Add user to request object
+        req.user = user;
+      }
       next();
 
     } catch (error) {

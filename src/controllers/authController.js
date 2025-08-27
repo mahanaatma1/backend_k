@@ -2,6 +2,7 @@ const User = require('../models/User');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { uploadToCloudinary } = require('../config/cloudinary');
+const { safeDeleteFile } = require('../utils/fileUtils');
 const fs = require('fs');
 
 // Generate JWT Token
@@ -32,6 +33,15 @@ const signup = async (req, res) => {
     let profilePictureUrl = null;
     if (req.file) {
       try {
+        // Check if file exists before processing
+        if (!fs.existsSync(req.file.path)) {
+          console.error('File not found:', req.file.path);
+          return res.status(500).json({
+            success: false,
+            message: 'Uploaded file not found. Please try again.'
+          });
+        }
+
         // Upload to Cloudinary
         const uploadResult = await uploadToCloudinary(req.file.path, {
           folder: 'profile-pictures',
@@ -47,23 +57,23 @@ const signup = async (req, res) => {
           console.error('Cloudinary upload failed:', uploadResult.error);
           return res.status(500).json({
             success: false,
-            message: 'Failed to upload profile picture'
+            message: 'Failed to upload profile picture to cloud storage'
           });
         }
 
         // Delete local file after successful upload
-        fs.unlinkSync(req.file.path);
+        safeDeleteFile(req.file.path);
       } catch (uploadError) {
         console.error('Profile picture upload error:', uploadError);
         
         // Clean up local file if it exists
-        if (req.file && req.file.path && fs.existsSync(req.file.path)) {
-          fs.unlinkSync(req.file.path);
+        if (req.file && req.file.path) {
+          safeDeleteFile(req.file.path);
         }
 
         return res.status(500).json({
           success: false,
-          message: 'Failed to upload profile picture'
+          message: 'Failed to upload profile picture. Please try again.'
         });
       }
     }
@@ -174,7 +184,7 @@ const signup = async (req, res) => {
   }
 };
 
-// @desc    Login user
+// @desc    Login user or admin
 // @route   POST /api/auth/login
 // @access  Public
 const login = async (req, res) => {
@@ -189,7 +199,52 @@ const login = async (req, res) => {
       });
     }
 
-    // Find user by email
+    // Check if it's admin login
+    const adminEmail = process.env.ADMIN_EMAIL;
+    const adminPassword = process.env.ADMIN_PASSWORD;
+
+    if (adminEmail && adminPassword && email === adminEmail) {
+      // Admin login attempt
+      if (password === adminPassword) {
+        // Create admin user object for JWT
+        const adminUser = {
+          _id: 'admin',
+          email: adminEmail,
+          role: 'admin',
+          firstName: 'Admin',
+          lastName: 'User',
+          isActive: true
+        };
+
+        // Generate JWT token for admin
+        const token = jwt.sign(
+          { 
+            userId: adminUser._id,
+            email: adminUser.email,
+            role: adminUser.role
+          },
+          process.env.JWT_SECRET,
+          { expiresIn: '30d' }
+        );
+
+        res.status(200).json({
+          success: true,
+          message: 'Admin login successful',
+          data: {
+            user: adminUser,
+            token
+          }
+        });
+        return;
+      } else {
+        return res.status(401).json({
+          success: false,
+          message: 'Invalid email or password'
+        });
+      }
+    }
+
+    // Regular user login
     const user = await User.findOne({ email }).select('+password');
     if (!user) {
       return res.status(401).json({
@@ -258,24 +313,37 @@ const getMe = async (req, res) => {
       });
     }
 
-    const userResponse = user.getPublicProfile();
+    // Handle admin user differently
+    if (user._id === 'admin' && user.role === 'admin') {
+      // For admin users, return the user object directly
+      res.status(200).json({
+        success: true,
+        data: {
+          user: user,
+          phoneDetails: null // Admin doesn't have phone details
+        }
+      });
+    } else {
+      // For regular users, use the Mongoose model methods
+      const userResponse = user.getPublicProfile();
 
-    // Add phone number details to response
-    const phoneDetails = {
-      fullNumber: user.phoneNumber,
-      countryCode: user.getCountryCode(),
-      numberWithoutCountryCode: user.getPhoneNumberWithoutCountryCode(),
-      isValid: user.isValidPhoneNumber(),
-      formattedNumber: user.getFormattedPhoneNumber()
-    };
+      // Add phone number details to response
+      const phoneDetails = {
+        fullNumber: user.phoneNumber,
+        countryCode: user.getCountryCode(),
+        numberWithoutCountryCode: user.getPhoneNumberWithoutCountryCode(),
+        isValid: user.isValidPhoneNumber(),
+        formattedNumber: user.getFormattedPhoneNumber()
+      };
 
-    res.status(200).json({
-      success: true,
-      data: {
-        user: userResponse,
-        phoneDetails
-      }
-    });
+      res.status(200).json({
+        success: true,
+        data: {
+          user: userResponse,
+          phoneDetails
+        }
+      });
+    }
 
   } catch (error) {
     console.error('Get profile error:', error);
